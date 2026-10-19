@@ -1,0 +1,317 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Multi-Tenant API Key Gateway & Management Console</title>
+  <meta name="description" content="Production-ready multi-tenant API key management gateway with sliding-window rate limiting and audit logging.">
+  
+  <!-- Modern Typography from Google Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&family=Outfit:wght@500;600;700;800&display=swap" rel="stylesheet">
+  
+  <!-- Chart.js -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+  <!-- Custom Stylesheet -->
+  <link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body>
+  <div class="app-container">
+    <!-- Top Bar / Header -->
+    <header class="top-header">
+      <div class="brand-section">
+        <div class="brand-icon">
+          <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z"></path>
+          </svg>
+        </div>
+        <div class="brand-title">
+          <h1>API Key Gateway & Console</h1>
+          <p>Secure Key Hashing • Sliding-Window Rate Limiting • 1-Min Rotation Grace • Audit Logs</p>
+        </div>
+      </div>
+
+      <div class="header-controls">
+        <div id="systemHealthBadge" class="system-status">
+          <span class="status-dot"></span> Checking Gateway...
+        </div>
+
+        <div class="tenant-select-wrapper">
+          <span class="tenant-select-label">Tenant:</span>
+          <select id="tenantSelect" class="tenant-select" aria-label="Select Tenant">
+            <option value="1">Loading Tenants...</option>
+          </select>
+        </div>
+      </div>
+    </header>
+
+    <!-- Metrics Overview Grid -->
+    <section class="metrics-grid">
+      <div class="metric-card accent-cyan">
+        <div class="metric-header">
+          <span class="metric-label">Total Requests</span>
+          <svg width="18" height="18" fill="none" stroke="var(--accent-cyan)" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6"></path></svg>
+        </div>
+        <div class="metric-value" id="metricTotalReq">0</div>
+        <div class="metric-sub">Logged in audit history</div>
+      </div>
+
+      <div class="metric-card accent-emerald">
+        <div class="metric-header">
+          <span class="metric-label">Allowed (200 OK)</span>
+          <svg width="18" height="18" fill="none" stroke="var(--accent-emerald)" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+        </div>
+        <div class="metric-value" id="metricSuccessReq">0</div>
+        <div class="metric-sub">Within rate limit window</div>
+      </div>
+
+      <div class="metric-card accent-rose">
+        <div class="metric-header">
+          <span class="metric-label">Rate Limited (429)</span>
+          <svg width="18" height="18" fill="none" stroke="var(--accent-rose)" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path></svg>
+        </div>
+        <div class="metric-value" id="metricRateLimitedReq">0</div>
+        <div class="metric-sub">Blocked by sliding window</div>
+      </div>
+
+      <div class="metric-card accent-purple">
+        <div class="metric-header">
+          <span class="metric-label">Active API Keys</span>
+          <svg width="18" height="18" fill="none" stroke="var(--accent-purple)" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z"></path></svg>
+        </div>
+        <div class="metric-value" id="metricActiveKeys">0</div>
+        <div class="metric-sub">Authorized credentials</div>
+      </div>
+    </section>
+
+    <!-- Two-Column Section: Keys List + Visualization/Testing -->
+    <div class="two-col-grid">
+      <!-- Left Column: API Keys Table -->
+      <section class="content-card">
+        <div class="card-header">
+          <div class="card-header-title">
+            <h2>Tenant API Keys</h2>
+            <span class="card-header-badge">SHA-256 Hashed</span>
+          </div>
+          <button id="btnOpenCreateModal" class="btn btn-primary btn-sm">
+            <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"></path></svg>
+            Issue New Key
+          </button>
+        </div>
+        <div class="card-body" style="padding:0">
+          <div class="table-responsive">
+            <table class="data-table" id="keysTable">
+              <thead>
+                <tr>
+                  <th>Masked Key</th>
+                  <th>Rate Quota</th>
+                  <th>Status</th>
+                  <th>Created</th>
+                  <th>Actions</th>
+                </tr>
+              </thead>
+              <tbody id="keysTableBody">
+                <tr><td colspan="5" class="empty-state">Loading credentials...</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <!-- Right Column: Usage Visualization & Interactive Simulator -->
+      <div style="display:flex; flex-direction:column; gap:24px;">
+        <!-- Usage Visualization Chart -->
+        <section class="content-card">
+          <div class="card-header">
+            <div class="card-header-title">
+              <h2>Request Volume (Last Hour)</h2>
+            </div>
+            <span class="card-header-badge">Chart.js</span>
+          </div>
+          <div class="card-body">
+            <div class="chart-container">
+              <canvas id="usageChart"></canvas>
+            </div>
+          </div>
+        </section>
+
+        <!-- Gateway Request Simulator -->
+        <section class="content-card">
+          <div class="card-header">
+            <div class="card-header-title">
+              <h2>Gateway Request Simulator</h2>
+              <span class="card-header-badge" style="background:rgba(6,182,212,0.15);color:var(--accent-cyan);border-color:rgba(6,182,212,0.3)">Live Sandbox</span>
+            </div>
+          </div>
+          <div class="card-body simulator-form">
+            <div class="form-group">
+              <label class="form-label" for="simKeyInput">API Key (Plaintext Bearer Token)</label>
+              <input type="text" id="simKeyInput" class="form-control" placeholder="sk_live_... (auto-filled on key creation or paste here)" />
+            </div>
+
+            <div class="sim-buttons">
+              <button id="btnSimSingle" class="btn btn-secondary btn-sm">
+                <svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14 5l7 7m0 0l-7 7m7-7H3"></path></svg>
+                Send Request
+              </button>
+              <button id="btnSimBurst" class="btn btn-primary btn-sm">
+                <svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path></svg>
+                Burst Test (Fire 6 Requests)
+              </button>
+            </div>
+
+            <div class="form-group">
+              <label class="form-label">Gateway Live Response & Quota Output</label>
+              <pre id="simOutput" class="sim-output">Ready. Click 'Send Request' or 'Burst Test' to test rate limiting against /api/protected.</pre>
+            </div>
+          </div>
+        </section>
+      </div>
+    </div>
+
+    <!-- Audit Logs Section -->
+    <section class="content-card">
+      <div class="card-header">
+        <div class="card-header-title">
+          <h2>Request Audit Log</h2>
+          <span class="card-header-badge">Persisted in PostgreSQL</span>
+        </div>
+        <div style="display:flex; align-items:center; gap:12px">
+          <label style="display:flex; align-items:center; gap:6px; font-size:0.78rem; color:var(--text-muted); cursor:pointer">
+            <input type="checkbox" id="autoRefreshToggle" checked> Auto-refresh (3s)
+          </label>
+        </div>
+      </div>
+      <div class="card-body" style="padding:0">
+        <div class="table-responsive">
+          <table class="data-table" id="auditTable">
+            <thead>
+              <tr>
+                <th>Log ID</th>
+                <th>Masked Key</th>
+                <th>Endpoint</th>
+                <th>Status</th>
+                <th>Timestamp</th>
+              </tr>
+            </thead>
+            <tbody id="auditTableBody">
+              <tr><td colspan="5" class="empty-state">Loading audit logs...</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="pagination-bar" style="padding: 14px 24px;">
+          <span id="auditPageInfo">Page 1 of 1</span>
+          <div class="pagination-controls">
+            <button id="btnAuditPrev" class="btn btn-secondary btn-sm" disabled>Previous</button>
+            <button id="btnAuditNext" class="btn btn-secondary btn-sm" disabled>Next</button>
+          </div>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <!-- Modal 1: Issue API Key Modal -->
+  <div id="createKeyModal" class="modal-overlay">
+    <div class="modal-box">
+      <div class="modal-header">
+        <h3>Issue New API Key</h3>
+        <button class="btn-close" aria-label="Close modal">&times;</button>
+      </div>
+      <div class="modal-body">
+        <p style="font-size:0.85rem; color:var(--text-muted)">
+          Generate a new cryptographically secure API key for the current tenant. The key is hashed with SHA-256 before storage.
+        </p>
+
+        <div class="form-group">
+          <label class="form-label" for="createRateLimit">Rate Limit (Requests per Minute)</label>
+          <input type="number" id="createRateLimit" class="form-control" value="100" min="1" max="100000" />
+          <div style="display:flex; gap:8px; margin-top:6px;">
+            <button type="button" class="btn btn-secondary btn-sm rate-preset-btn" data-rate="5">5 (Test 429)</button>
+            <button type="button" class="btn btn-secondary btn-sm rate-preset-btn" data-rate="60">60 req/m</button>
+            <button type="button" class="btn btn-secondary btn-sm rate-preset-btn" data-rate="100">100 req/m</button>
+            <button type="button" class="btn btn-secondary btn-sm rate-preset-btn" data-rate="1000">1000 req/m</button>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary btn-modal-cancel">Cancel</button>
+        <button id="btnSubmitCreateKey" class="btn btn-primary">Generate API Key</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal 2: API Key Reveal Modal (One-time Display) -->
+  <div id="keyRevealModal" class="modal-overlay">
+    <div class="modal-box">
+      <div class="modal-header">
+        <h3>API Key Generated Successfully</h3>
+        <button class="btn-close" aria-label="Close modal">&times;</button>
+      </div>
+      <div class="modal-body">
+        <div class="alert-warning">
+          <strong>Important Security Notice:</strong> Please copy this API key now. For security purposes, this secret key will <strong>NEVER</strong> be displayed again. Only its SHA-256 hash is saved in the database.
+        </div>
+
+        <div class="key-reveal-box">
+          <span id="revealedKeyText" class="key-reveal-text">sk_live_...</span>
+          <button id="btnCopyRevealedKey" class="btn btn-primary btn-sm">
+            <svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"></path></svg>
+            Copy
+          </button>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary btn-modal-cancel">I Have Saved My Key</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal 3: Rotate Confirmation Modal -->
+  <div id="rotateConfirmModal" class="modal-overlay">
+    <div class="modal-box">
+      <div class="modal-header">
+        <h3>Confirm API Key Rotation</h3>
+        <button class="btn-close" aria-label="Close modal">&times;</button>
+      </div>
+      <div class="modal-body">
+        <p id="rotateKeyPrompt" style="font-size:0.88rem; color:var(--text-main); line-height:1.5;"></p>
+        <div class="alert-warning" style="margin-top:10px">
+          <strong>Rotation Grace Period:</strong> Both the old key and the new key will be accepted for <strong>60 seconds</strong>. After 60 seconds, the old key will be permanently invalidated.
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary btn-modal-cancel">Cancel</button>
+        <button id="btnConfirmRotate" class="btn btn-outline-amber">Rotate Key</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal 4: Revoke Confirmation Modal -->
+  <div id="revokeConfirmModal" class="modal-overlay">
+    <div class="modal-box">
+      <div class="modal-header">
+        <h3>Confirm API Key Revocation</h3>
+        <button class="btn-close" aria-label="Close modal">&times;</button>
+      </div>
+      <div class="modal-body">
+        <p id="revokeKeyPrompt" style="font-size:0.88rem; color:var(--text-main); line-height:1.5;"></p>
+        <div class="alert-warning" style="border-color:rgba(244,63,94,0.3); background:rgba(244,63,94,0.1); color:#fecdd3; margin-top:10px">
+          <strong>Immediate Effect:</strong> This key will be revoked instantly. Any incoming request using this key will immediately return <code>401 Unauthorized</code>.
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary btn-modal-cancel">Cancel</button>
+        <button id="btnConfirmRevoke" class="btn btn-outline-rose">Revoke Key Now</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Toast Notification Container -->
+  <div id="toastContainer" class="toast-container"></div>
+
+  <!-- App Logic -->
+  <script src="/static/js/app.js"></script>
+</body>
+</html>
